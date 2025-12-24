@@ -1,0 +1,442 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://saina.local/schemas/action_contract.schema.json",
+  "title": "SAINA LLM Action Contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["assistant_text", "actions"],
+  "properties": {
+    "assistant_text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Text to send to the user in Telegram. Must be in Russian."
+    },
+    "actions": {
+      "type": "array",
+      "description": "Ordered list of actions to execute. Empty array is allowed.",
+      "items": { "$ref": "#/$defs/action" }
+    },
+    "followup_required": {
+      "type": "boolean",
+      "default": false,
+      "description": "If true, code should call LLM again after executing actions with execution results."
+    },
+    "debug": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "intent": {
+          "type": "string",
+          "description": "Optional intent label for observability."
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    }
+  },
+  "$defs": {
+    "user_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["telegram_id"],
+      "properties": {
+        "telegram_id": { "type": "string", "minLength": 1 },
+        "display_name": { "type": "string" }
+      }
+    },
+    "datetime_str": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}$",
+      "description": "Datetime string in 'YYYY-MM-DD HH:MM' in Asia/Yekaterinburg timezone."
+    },
+    "date_str": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "description": "Date string in 'YYYY-MM-DD' in Asia/Yekaterinburg timezone."
+    },
+    "event_type": {
+      "type": "string",
+      "enum": ["work", "food", "sleep", "rest", "training", "hobby", "other"]
+    },
+    "event_status": {
+      "type": "string",
+      "enum": ["planned", "done", "missed", "moved", "cancelled"]
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "payload"],
+      "properties": {
+        "type": { "$ref": "#/$defs/action_type" },
+        "payload": { "type": "object" },
+        "idempotency_key": {
+          "type": "string",
+          "description": "Optional. Used by code to dedupe repeated actions on retries."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "read_schedule" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/read_schedule_payload" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "create_event" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/create_event_payload" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "update_event" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/update_event_payload" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "move_event" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/move_event_payload" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "cancel_event" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/cancel_event_payload" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "create_recurring_series" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/create_recurring_series_payload" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "cancel_recurring_series" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/cancel_recurring_series_payload" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "cancel_recurring_occurrence" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/cancel_recurring_occurrence_payload" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "sync_calendar_event" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/sync_calendar_event_payload" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "log_food" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/log_food_payload" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "update_health_daily_totals" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/update_health_daily_totals_payload" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "set_memory_key" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/set_memory_key_payload" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "ask_user_confirmation" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/ask_user_confirmation_payload" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "send_approval_request" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/send_approval_request_payload" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "mark_event_completion" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/mark_event_completion_payload" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "propose_time_options" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/propose_time_options_payload" } } }
+        }
+      ]
+    },
+    "action_type": {
+      "type": "string",
+      "enum": [
+        "read_schedule",
+        "create_event",
+        "update_event",
+        "move_event",
+        "cancel_event",
+        "create_recurring_series",
+        "cancel_recurring_series",
+        "cancel_recurring_occurrence",
+        "sync_calendar_event",
+        "log_food",
+        "update_health_daily_totals",
+        "set_memory_key",
+        "ask_user_confirmation",
+        "send_approval_request",
+        "mark_event_completion",
+        "propose_time_options"
+      ]
+    },
+
+    "read_schedule_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user", "range"],
+      "properties": {
+        "user": { "$ref": "#/$defs/user_ref" },
+        "range": {
+          "type": "string",
+          "enum": ["today", "tomorrow", "next_7_days", "custom"]
+        },
+        "start_dt": { "$ref": "#/$defs/datetime_str" },
+        "end_dt": { "$ref": "#/$defs/datetime_str" },
+        "include_cancelled": { "type": "boolean", "default": false }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "range": { "const": "custom" } } },
+          "then": { "required": ["start_dt", "end_dt"] }
+        }
+      ]
+    },
+
+    "create_event_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user", "title", "type", "start_dt", "end_dt"],
+      "properties": {
+        "user": { "$ref": "#/$defs/user_ref" },
+        "title": { "type": "string", "minLength": 1 },
+        "type": { "$ref": "#/$defs/event_type" },
+        "start_dt": { "$ref": "#/$defs/datetime_str" },
+        "end_dt": { "$ref": "#/$defs/datetime_str" },
+        "is_recurring": { "type": "boolean", "default": false },
+        "rrule": { "type": "string" },
+        "priority": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "flexibility": { "type": "integer", "minimum": 0, "maximum": 3, "default": 2 },
+        "buffer_before_min": { "type": "integer", "minimum": 0, "maximum": 120, "default": 10 },
+        "buffer_after_min": { "type": "integer", "minimum": 0, "maximum": 120, "default": 10 },
+        "notes": { "type": "string" },
+        "created_by": { "type": "string", "default": "bot" }
+      }
+    },
+
+    "update_event_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user", "event_id", "patch"],
+      "properties": {
+        "user": { "$ref": "#/$defs/user_ref" },
+        "event_id": { "type": "string", "minLength": 1 },
+        "patch": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "title": { "type": "string", "minLength": 1 },
+            "type": { "$ref": "#/$defs/event_type" },
+            "notes": { "type": "string" },
+            "priority": { "type": "integer", "minimum": 1, "maximum": 10 },
+            "flexibility": { "type": "integer", "minimum": 0, "maximum": 3 },
+            "status": { "$ref": "#/$defs/event_status" }
+          }
+        }
+      }
+    },
+
+    "move_event_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user", "event_id", "new_start_dt", "new_end_dt"],
+      "properties": {
+        "user": { "$ref": "#/$defs/user_ref" },
+        "event_id": { "type": "string", "minLength": 1 },
+        "new_start_dt": { "$ref": "#/$defs/datetime_str" },
+        "new_end_dt": { "$ref": "#/$defs/datetime_str" },
+        "reason": { "type": "string" },
+        "override": { "type": "boolean", "default": false }
+      }
+    },
+
+    "cancel_event_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user", "event_id"],
+      "properties": {
+        "user": { "$ref": "#/$defs/user_ref" },
+        "event_id": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string" },
+        "override": { "type": "boolean", "default": false }
+      }
+    },
+
+    "create_recurring_series_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user", "title", "type", "start_dt", "end_dt", "rrule"],
+      "properties": {
+        "user": { "$ref": "#/$defs/user_ref" },
+        "title": { "type": "string", "minLength": 1 },
+        "type": { "$ref": "#/$defs/event_type" },
+        "start_dt": { "$ref": "#/$defs/datetime_str" },
+        "end_dt": { "$ref": "#/$defs/datetime_str" },
+        "rrule": { "type": "string", "minLength": 5 },
+        "priority": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "flexibility": { "type": "integer", "minimum": 0, "maximum": 3, "default": 2 },
+        "buffer_before_min": { "type": "integer", "minimum": 0, "maximum": 120, "default": 10 },
+        "buffer_after_min": { "type": "integer", "minimum": 0, "maximum": 120, "default": 10 },
+        "notes": { "type": "string" },
+        "created_by": { "type": "string", "default": "bot" }
+      }
+    },
+
+    "cancel_recurring_series_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user", "recurrence_id"],
+      "properties": {
+        "user": { "$ref": "#/$defs/user_ref" },
+        "recurrence_id": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string" }
+      }
+    },
+
+    "cancel_recurring_occurrence_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user", "recurrence_id", "occurrence_date"],
+      "properties": {
+        "user": { "$ref": "#/$defs/user_ref" },
+        "recurrence_id": { "type": "string", "minLength": 1 },
+        "occurrence_date": { "$ref": "#/$defs/date_str" },
+        "reason": { "type": "string" }
+      }
+    },
+
+    "sync_calendar_event_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user", "event_id", "mode"],
+      "properties": {
+        "user": { "$ref": "#/$defs/user_ref" },
+        "event_id": { "type": "string", "minLength": 1 },
+        "mode": { "type": "string", "enum": ["upsert", "delete"] }
+      }
+    },
+
+    "log_food_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user", "dt", "estimated_kcal", "protein_g", "fat_g", "carbs_g", "confidence"],
+      "properties": {
+        "user": { "$ref": "#/$defs/user_ref" },
+        "dt": { "$ref": "#/$defs/datetime_str" },
+        "text_input": { "type": "string" },
+        "photo_file_id": { "type": "string" },
+        "estimated_kcal": { "type": "integer", "minimum": 0, "maximum": 10000 },
+        "protein_g": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "fat_g": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "carbs_g": { "type": "integer", "minimum": 0, "maximum": 1500 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "needs_clarification": { "type": "boolean", "default": false },
+        "clarification_question": { "type": "string" }
+      }
+    },
+
+    "update_health_daily_totals_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user", "date"],
+      "properties": {
+        "user": { "$ref": "#/$defs/user_ref" },
+        "date": { "$ref": "#/$defs/date_str" },
+        "kcal_total": { "type": "integer", "minimum": 0, "maximum": 20000 },
+        "protein_g": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "fat_g": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "carbs_g": { "type": "integer", "minimum": 0, "maximum": 3000 },
+        "sleep_hours": { "type": "number", "minimum": 0, "maximum": 24 },
+        "training_minutes": { "type": "integer", "minimum": 0, "maximum": 1440 },
+        "weight_kg": { "type": "number", "minimum": 0, "maximum": 500 },
+        "health_note": { "type": "string" },
+        "source": { "type": "string", "enum": ["manual"] }
+      }
+    },
+
+    "set_memory_key_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user", "key", "value"],
+      "properties": {
+        "user": { "$ref": "#/$defs/user_ref" },
+        "key": { "type": "string", "minLength": 1 },
+        "value": { "type": "string" }
+      }
+    },
+
+    "ask_user_confirmation_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user", "question", "context_key"],
+      "properties": {
+        "user": { "$ref": "#/$defs/user_ref" },
+        "question": { "type": "string", "minLength": 1 },
+        "context_key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Key stored in SystemState.pending_confirmations to correlate next user reply."
+        },
+        "options": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 2,
+          "maxItems": 8
+        }
+      }
+    },
+
+    "send_approval_request_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requester", "target_user", "message", "request_priority"],
+      "properties": {
+        "requester": { "$ref": "#/$defs/user_ref" },
+        "target_user": { "$ref": "#/$defs/user_ref" },
+        "message": { "type": "string", "minLength": 1 },
+        "request_priority": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "context_key": { "type": "string", "minLength": 1 }
+      }
+    },
+
+    "mark_event_completion_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user", "event_id", "confirm_status", "dt"],
+      "properties": {
+        "user": { "$ref": "#/$defs/user_ref" },
+        "event_id": { "type": "string", "minLength": 1 },
+        "confirm_status": { "type": "string", "enum": ["done", "not_done", "extended"] },
+        "dt": { "$ref": "#/$defs/datetime_str" },
+        "extend_min": { "type": "integer", "minimum": 1, "maximum": 240 },
+        "comment": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "confirm_status": { "const": "extended" } } },
+          "then": { "required": ["extend_min"] }
+        }
+      ]
+    },
+
+    "propose_time_options_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user", "event_id", "options"],
+      "properties": {
+        "user": { "$ref": "#/$defs/user_ref" },
+        "event_id": { "type": "string", "minLength": 1 },
+        "options": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 6,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["start_dt", "end_dt"],
+            "properties": {
+              "start_dt": { "$ref": "#/$defs/datetime_str" },
+              "end_dt": { "$ref": "#/$defs/datetime_str" },
+              "label": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
