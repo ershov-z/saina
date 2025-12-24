@@ -10,6 +10,7 @@ from openai import AsyncOpenAI
 
 from app.action_validation import ActionValidator
 from app.models import Action, LLMResponse
+from app.prompts import build_sayna_messages
 
 
 logger = logging.getLogger(__name__)
@@ -22,8 +23,9 @@ class OpenAIClient:
         self.validator = ActionValidator(schema_path=schema_path)
 
     async def generate_actions(self, messages: List[Dict[str, str]]) -> LLMResponse:
-        response = await self._call_model(messages)
-        validated = await self._validate_response(response, messages)
+        prepared_messages = build_sayna_messages(messages)
+        response = await self._call_model(prepared_messages)
+        validated = await self._validate_response(response, prepared_messages)
         return validated
 
     async def _call_model(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
