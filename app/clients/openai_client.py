@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from typing import Any, Dict, List
 
 from jsonschema import ValidationError
@@ -30,6 +31,13 @@ class OpenAIClient:
 
     async def _call_model(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
         messages = self._prepare_messages(messages)
+
+    async def generate_actions(self, messages: List[Dict[str, str]]) -> LLMResponse:
+        response = await self._call_model(messages)
+        validated = await self._validate_response(response, messages)
+        return validated
+
+    async def _call_model(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
         completion = await self.client.chat.completions.create(
             model=self.model,
             messages=messages,
