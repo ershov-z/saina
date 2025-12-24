@@ -1,0 +1,32 @@
+app/
+  __init__.py
+  config.py
+  time_utils.py
+  models.py
+  action_validation.py
+  orchestrator.py
+  scheduler.py
+  clients/
+    __init__.py
+    telegram.py
+    openai_client.py
+    google_sheets.py
+    google_calendar.py
+  handlers/
+    __init__.py
+    telegram_router.py
+  services/
+    __init__.py
+    schedule.py
+    reminders.py
+    approvals.py
+    food.py
+    health.py
+  store/
+    __init__.py
+    conversation.py
+    system_state_store.py
+  state.py
+main.py
+action_contract.schema.json
+.env.example

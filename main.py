@@ -1,120 +1,132 @@
-import os
 import asyncio
 import logging
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-import httpx
+
+from app.clients.google_calendar import CalendarClient
+from app.clients.google_sheets import SheetsClient
+from app.clients.openai_client import OpenAIClient
+from app.clients.telegram import TelegramClient
+from app.config import load_config
+from app.handlers.telegram_router import TelegramRouter
+from app.orchestrator import Orchestrator
+from app.scheduler import polling_loop, self_ping_loop
+from app.services.approvals import ApprovalService
+from app.services.food import FoodService
+from app.services.health import HealthService
+from app.services.reminders import ReminderService
+from app.services.schedule import ScheduleService
+from app.state import SystemState
+from app.store.conversation import ConversationStore
+
 
 # =========================
 # Basic config
 # =========================
 
-SERVICE_NAME = "family-assistant-bot"
-
-BASE_URL = os.getenv("BASE_URL", "")
-HEALTHCHECK_PATH = os.getenv("HEALTHCHECK_PATH", "/health")
-
-SELF_PING_ENABLED = os.getenv("SELF_PING_ENABLED", "false").lower() == "true"
-SELF_PING_INTERVAL_MIN = int(os.getenv("SELF_PING_INTERVAL_MIN", "12"))
-
-TZ_NAME = os.getenv("TZ", "Asia/Yekaterinburg")
+config = load_config()
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
-logger = logging.getLogger(SERVICE_NAME)
+logger = logging.getLogger(config.service_name)
 
 app = FastAPI()
 
-START_TIME = datetime.now(timezone.utc)
+TZ_INFO = ZoneInfo(config.timezone_name)
+SYSTEM_STATE = SystemState()
+
+# Clients
+sheets_client = SheetsClient(
+    client_id=config.google_client_id,
+    client_secret=config.google_client_secret,
+    refresh_token=config.google_refresh_token,
+    token_uri=config.google_token_uri,
+    scopes=config.google_scopes,
+)
+calendar_client = CalendarClient(
+    client_id=config.google_client_id,
+    client_secret=config.google_client_secret,
+    refresh_token=config.google_refresh_token,
+    token_uri=config.google_token_uri,
+    scopes=config.google_scopes,
+)
+telegram_client = TelegramClient(config.telegram_bot_token)
+openai_client = OpenAIClient(api_key=config.openai_api_key, model=config.openai_model, schema_path="action_contract.schema.json")
+
+# Services and orchestrator
+schedule_service = ScheduleService(sheets_client, calendar_client)
+food_service = FoodService(sheets_client)
+health_service = HealthService(sheets_client)
+approval_service = ApprovalService(telegram_client)
+conversation_store = ConversationStore()
+orchestrator = Orchestrator(
+    config,
+    openai_client,
+    telegram_client,
+    schedule_service,
+    food_service,
+    health_service,
+    approval_service,
+    conversation_store,
+)
+reminder_service = ReminderService(schedule_service, telegram_client)
+router = TelegramRouter(orchestrator, conversation_store)
 
 
 # =========================
 # Healthcheck
 # =========================
 
-@app.get(HEALTHCHECK_PATH)
+@app.get(config.healthcheck_path)
 async def healthcheck():
     """
     Healthcheck endpoint.
     Must be fast, independent, and never call external APIs.
     """
-    uptime_seconds = int((datetime.now(timezone.utc) - START_TIME).total_seconds())
 
-    return {
-        "status": "ok",
-        "service": SERVICE_NAME,
-        "time_utc": datetime.now(timezone.utc).isoformat(),
-        "uptime_seconds": uptime_seconds,
+    now_utc = datetime.now(timezone.utc)
+    now_local = datetime.now(TZ_INFO)
+
+    status = "ok"
+    if SYSTEM_STATE.last_poll_dt is None:
+        status = "degraded"
+    else:
+        lag_seconds = (now_utc - SYSTEM_STATE.last_poll_dt).total_seconds()
+        if lag_seconds > config.poll_interval_seconds * 5:
+            status = "degraded"
+
+    payload = {
+        "status": status,
+        "service": config.service_name,
+        "time_ekb": now_local.isoformat(),
+        "timezone": config.timezone_name,
+        "uptime_seconds": SYSTEM_STATE.uptime_seconds,
     }
+    payload.update(SYSTEM_STATE.as_health_payload())
+    return payload
 
 
 # =========================
 # Telegram webhook stub
 # =========================
 
-@app.post("/tg/webhook")
+@app.post(config.telegram_webhook_path)
 async def telegram_webhook(request: Request):
     """
     Telegram webhook entrypoint.
-    Actual update handling will be implemented later.
     """
     update = await request.json()
 
-    # IMPORTANT:
-    # No business logic here yet.
-    # Codex will plug dispatcher / router later.
-    logger.debug("Received Telegram update")
+    logger.debug("Received Telegram update: %s", update.get("update_id"))
 
-    return JSONResponse({"ok": True})
-
-
-# =========================
-# Background tasks
-# =========================
-
-async def self_ping_loop():
-    """
-    Periodically pings /health to keep Render instance alive.
-    """
-    if not BASE_URL:
-        logger.warning("BASE_URL not set, self-ping disabled")
-        return
-
-    url = f"{BASE_URL}{HEALTHCHECK_PATH}"
-    logger.info(f"Self-ping enabled, target: {url}")
-
-    async with httpx.AsyncClient(timeout=10) as client:
-        while True:
-            try:
-                await asyncio.sleep(SELF_PING_INTERVAL_MIN * 60)
-                response = await client.get(url)
-                logger.info(f"Self-ping status={response.status_code}")
-            except Exception as e:
-                logger.warning(f"Self-ping failed: {e}")
-
-
-async def polling_loop():
-    """
-    Placeholder for Google Sheets polling:
-    - reminders
-    - confirmations
-    - daily plan
-    - daily digest
-
-    Real implementation will be added later.
-    """
-    logger.info("Polling loop started (stub)")
-    while True:
-        try:
-            # TODO: implement polling logic
-            await asyncio.sleep(60)
-        except Exception as e:
-            logger.exception(f"Polling loop error: {e}")
-            await asyncio.sleep(10)
+    result = await router.handle_update(update)
+    return JSONResponse(result)
 
 
 # =========================
@@ -123,13 +135,13 @@ async def polling_loop():
 
 @app.on_event("startup")
 async def on_startup():
-    logger.info("Service starting up")
+    logger.info("Service starting up in timezone %s", config.timezone_name)
 
-    if SELF_PING_ENABLED:
-        asyncio.create_task(self_ping_loop())
+    if config.self_ping_enabled:
+        asyncio.create_task(self_ping_loop(config, SYSTEM_STATE))
 
     # Polling must run regardless of Telegram traffic
-    asyncio.create_task(polling_loop())
+    asyncio.create_task(polling_loop(config, SYSTEM_STATE, reminder_service, orchestrator.user_profiles))
 
 
 @app.on_event("shutdown")
