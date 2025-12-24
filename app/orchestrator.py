@@ -15,6 +15,7 @@ from app.services.health import HealthService
 from app.services.schedule import ScheduleService
 from app.store.conversation import ConversationStore
 from app.time_utils import format_dt, now_local
+from app.prompts import build_sayna_messages
 
 
 logger = logging.getLogger(__name__)
@@ -64,19 +65,14 @@ class Orchestrator:
 
     async def process_text_message(self, telegram_id: str, text: str) -> None:
         profile = self._profile(telegram_id)
-        messages = [
-            {
-                "role": "system",
-                "content": "Ты семейный ассистент в Telegram. Все тексты на русском. Источник правды — Google Sheets, календарь зеркало.",
-            },
-            {"role": "user", "content": text},
-        ]
+        base_messages = [{"role": "user", "content": text}]
 
         # Attach recent context
         recent = self.conversations.get_recent(telegram_id)
         for msg in recent:
-            messages.append({"role": msg["role"], "content": msg["text"]})
+            base_messages.append({"role": msg["role"], "content": msg["text"]})
 
+        messages = build_sayna_messages(base_messages)
         llm_response = await self.openai_client.generate_actions(messages)
         self.conversations.add_message(telegram_id, "assistant", llm_response.assistant_text)
         await self.telegram.send_message(telegram_id, llm_response.assistant_text)
