@@ -10,6 +10,7 @@ from openai import AsyncOpenAI
 
 from app.action_validation import ActionValidator
 from app.models import Action, LLMResponse
+from app.prompts import with_sayna_system_prompt, load_sayna_system_prompt
 
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,16 @@ class OpenAIClient:
         self.client = AsyncOpenAI(api_key=api_key)
         self.model = model
         self.validator = ActionValidator(schema_path=schema_path)
+        self.system_prompt = load_sayna_system_prompt()
+
+    async def generate_actions(self, messages: List[Dict[str, str]]) -> LLMResponse:
+        prepared_messages = self._prepare_messages(messages)
+        response = await self._call_model(prepared_messages)
+        validated = await self._validate_response(response, prepared_messages)
+        return validated
+
+    async def _call_model(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+        messages = self._prepare_messages(messages)
 
     async def generate_actions(self, messages: List[Dict[str, str]]) -> LLMResponse:
         response = await self._call_model(messages)
@@ -61,3 +72,7 @@ class OpenAIClient:
             followup_required=payload.get("followup_required", False),
             debug=payload.get("debug"),
         )
+
+    def _prepare_messages(self, messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        # Always enforce the Sayna system prompt as the first message
+        return with_sayna_system_prompt(messages)
